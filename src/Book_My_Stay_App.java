@@ -1,123 +1,169 @@
 import java.util.*;
 
-
-class Service {
-    private String serviceName;
-    private double cost;
-
-    public Service(String serviceName, double cost) {
-        this.serviceName = serviceName;
-        this.cost = cost;
-    }
-
-    public String getServiceName() {
-        return serviceName;
-    }
-
-    public double getCost() {
-        return cost;
-    }
-
-    @Override
-    public String toString() {
-        return serviceName + " (Cost: " + cost + ")";
+// Custom exception for booking related errors
+class BookingException extends Exception {
+    public BookingException(String message) {
+        super(message);
     }
 }
 
-
+// Reservation class
 class Reservation {
-    private String reservationId;
+    private int reservationId;
     private String guestName;
     private String roomType;
+    private String roomId;
+    private boolean active;
 
-    public Reservation(String reservationId, String guestName, String roomType) {
+    public Reservation(int reservationId, String guestName, String roomType, String roomId) {
         this.reservationId = reservationId;
         this.guestName = guestName;
         this.roomType = roomType;
+        this.roomId = roomId;
+        this.active = true;
     }
 
-    public String getReservationId() {
+    public int getReservationId() {
         return reservationId;
-    }
-
-    public String getGuestName() {
-        return guestName;
     }
 
     public String getRoomType() {
         return roomType;
     }
+
+    public String getRoomId() {
+        return roomId;
+    }
+
+    public boolean isActive() {
+        return active;
+    }
+
+    public void cancel() {
+        active = false;
+    }
+
+    public String toString() {
+        return "Reservation ID: " + reservationId +
+                ", Guest: " + guestName +
+                ", Room Type: " + roomType +
+                ", Room ID: " + roomId +
+                ", Status: " + (active ? "CONFIRMED" : "CANCELLED");
+    }
 }
 
+// Inventory management
+class HotelInventory {
 
-class AddOnServiceManager {
+    private Map<String, Integer> inventory = new HashMap<>();
 
-
-    private Map<String, List<Service>> reservationServices = new HashMap<>();
-
-
-    public void addService(String reservationId, Service service) {
-        reservationServices
-                .computeIfAbsent(reservationId, k -> new ArrayList<>())
-                .add(service);
+    public HotelInventory() {
+        inventory.put("Standard", 2);
+        inventory.put("Deluxe", 2);
+        inventory.put("Suite", 1);
     }
 
-    public List<Service> getServices(String reservationId) {
-        return reservationServices.getOrDefault(reservationId, new ArrayList<>());
-    }
+    public void allocateRoom(String roomType) throws BookingException {
 
-
-    public double calculateTotalServiceCost(String reservationId) {
-        double total = 0;
-
-        List<Service> services = reservationServices.get(reservationId);
-
-        if (services != null) {
-            for (Service s : services) {
-                total += s.getCost();
-            }
+        if (!inventory.containsKey(roomType)) {
+            throw new BookingException("Invalid room type.");
         }
 
-        return total;
+        int available = inventory.get(roomType);
+
+        if (available <= 0) {
+            throw new BookingException("No rooms available for type: " + roomType);
+        }
+
+        inventory.put(roomType, available - 1);
+    }
+
+    public void releaseRoom(String roomType) {
+        int available = inventory.get(roomType);
+        inventory.put(roomType, available + 1);
+    }
+
+    public void displayInventory() {
+        System.out.println("\nCurrent Inventory:");
+        for (String type : inventory.keySet()) {
+            System.out.println(type + " Rooms Available: " + inventory.get(type));
+        }
     }
 }
 
-public class Book_My_Stay_App {
+// Cancellation service using Stack for rollback
+class CancellationService {
+
+    private Stack<String> rollbackStack = new Stack<>();
+
+    public void cancelReservation(int reservationId,
+                                  Map<Integer, Reservation> bookingHistory,
+                                  HotelInventory inventory) throws BookingException {
+
+        if (!bookingHistory.containsKey(reservationId)) {
+            throw new BookingException("Reservation does not exist.");
+        }
+
+        Reservation reservation = bookingHistory.get(reservationId);
+
+        if (!reservation.isActive()) {
+            throw new BookingException("Reservation already cancelled.");
+        }
+
+        // Record room id for rollback tracking
+        rollbackStack.push(reservation.getRoomId());
+
+        // Restore inventory
+        inventory.releaseRoom(reservation.getRoomType());
+
+        // Mark reservation cancelled
+        reservation.cancel();
+
+        System.out.println("Cancellation successful for reservation: " + reservationId);
+        System.out.println("Released Room ID: " + rollbackStack.pop());
+    }
+}
+
+// Main class
+public class BookMyStayApp{
 
     public static void main(String[] args) {
 
+        HotelInventory inventory = new HotelInventory();
+        Map<Integer, Reservation> bookingHistory = new HashMap<>();
+        CancellationService cancellationService = new CancellationService();
 
-        Reservation reservation = new Reservation("R101", "Arun", "Deluxe");
+        try {
 
+            // Simulate confirmed bookings
+            inventory.allocateRoom("Standard");
+            Reservation r1 = new Reservation(101, "Alice", "Standard", "S1");
+            bookingHistory.put(101, r1);
 
-        AddOnServiceManager serviceManager = new AddOnServiceManager();
+            inventory.allocateRoom("Deluxe");
+            Reservation r2 = new Reservation(102, "Bob", "Deluxe", "D1");
+            bookingHistory.put(102, r2);
 
-        Service breakfast = new Service("Breakfast", 500);
-        Service airportPickup = new Service("Airport Pickup", 1200);
-        Service spa = new Service("Spa Access", 1500);
+            System.out.println("Confirmed Bookings:");
+            for (Reservation r : bookingHistory.values()) {
+                System.out.println(r);
+            }
 
+            // Guest cancels a booking
+            cancellationService.cancelReservation(101, bookingHistory, inventory);
 
-        serviceManager.addService(reservation.getReservationId(), breakfast);
-        serviceManager.addService(reservation.getReservationId(), airportPickup);
-        serviceManager.addService(reservation.getReservationId(), spa);
+            // Attempt duplicate cancellation
+            cancellationService.cancelReservation(101, bookingHistory, inventory);
 
-
-        System.out.println("Reservation ID: " + reservation.getReservationId());
-        System.out.println("Guest Name: " + reservation.getGuestName());
-        System.out.println("Room Type: " + reservation.getRoomType());
-
-
-        System.out.println("\nSelected Add-On Services:");
-
-        List<Service> services = serviceManager.getServices(reservation.getReservationId());
-
-        for (Service s : services) {
-            System.out.println("- " + s);
+        } catch (BookingException e) {
+            System.out.println("Operation failed: " + e.getMessage());
         }
 
+        inventory.displayInventory();
 
-        double totalCost = serviceManager.calculateTotalServiceCost(reservation.getReservationId());
-
-        System.out.println("\nTotal Add-On Service Cost: " + totalCost);
+        System.out.println("\nUpdated Booking History:");
+        for (Reservation r : bookingHistory.values()) {
+            System.out.println(r);
+        }
     }
 }
